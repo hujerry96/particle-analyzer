@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.tif
+*.png
+*.csv
+*.txt
+*.zip
+response.json
+payload.json
+01/
+02/
+
+# IDE
+.vscode/
+.idea/
