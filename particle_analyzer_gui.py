@@ -540,7 +540,7 @@ class ParticleAnalyzerGUI:
 
         mode = self._mode_key()
         key = self._alg_key(self.alg_var.get())
-        self._log(t('running', mode=mode, key=key))
+        self._log(t('running', mode=mode, alg=key))
         self.master.update()
 
         if mode == 'particle':
