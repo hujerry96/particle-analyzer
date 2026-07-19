@@ -1,13 +1,5 @@
-<input type="radio" id="tab-zh" name="lang" checked>
-<input type="radio" id="tab-en" name="lang">
-
-<div style="border-bottom:1px solid #ddd;margin-bottom:16px">
-  <label for="tab-zh" style="display:inline-block;padding:8px 16px;cursor:pointer;border:1px solid #ddd;border-bottom:none;border-radius:6px 6px 0 0;margin-bottom:-1px;background:#f6f8fa;font-weight:bold">中文</label>
-  <label for="tab-en" style="display:inline-block;padding:8px 16px;cursor:pointer;border:1px solid #ddd;border-bottom:none;border-radius:6px 6px 0 0;margin-bottom:-1px;background:#f6f8fa;font-weight:bold">English</label>
-</div>
-
-<!-- ===================== 中文 ===================== -->
-<div class="lang-zh">
+<details open>
+<summary><strong>🇹🇼 中文說明（點擊展開/收合）</strong></summary>
 
 # SEM 粒徑分析工具 Particle Size Analyzer
 
@@ -98,10 +90,10 @@ pyinstaller ParticleAnalyzer.spec
 | `*_overlay.png` | 分割疊加圖 + 比例尺 |
 | `*_distribution.png` | 雙軸對數分布圖 |
 
-</div>
+</details>
 
-<!-- ===================== English ===================== -->
-<div class="lang-en">
+<details>
+<summary><strong>🇬🇧 English (click to expand/collapse)</strong></summary>
 
 # SEM Particle Size Analyzer
 
@@ -192,11 +184,4 @@ After analysis, the following files are produced:
 | `*_overlay.png` | Segmentation overlay + scale bar |
 | `*_distribution.png` | Dual-axis log distribution plot |
 
-</div>
-
-<style>
-#tab-zh:checked ~ .lang-zh { display: block; }
-#tab-zh:checked ~ .lang-en { display: none; }
-#tab-en:checked ~ .lang-zh { display: none; }
-#tab-en:checked ~ .lang-en { display: block; }
-</style>
+</details>
