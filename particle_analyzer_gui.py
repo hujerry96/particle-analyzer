@@ -191,7 +191,7 @@ class ParticleAnalyzerGUI:
         # --- 模式選擇 ---
         mode_frame = ttk.LabelFrame(right_frame, text=t('mode'), padding=8)
         mode_frame.pack(fill=tk.X, padx=8, pady=5)
-        self.mode_var = tk.StringVar(value='particle')
+        self.mode_var = tk.StringVar(value=t('mode_particle'))
         mode_cb = ttk.Combobox(mode_frame, textvariable=self.mode_var,
                                state='readonly', width=20)
         mode_cb.pack(fill=tk.X)
@@ -255,10 +255,13 @@ class ParticleAnalyzerGUI:
         self._update_param_frames()
 
     # ---- 演算法設定 ----
-    MODE_MAP = {'particle': 'particle', 'pore': 'pore'}
 
     def _mode_key(self):
-        return self.mode_var.get()
+        label = self.mode_var.get()
+        for k in ('particle', 'pore'):
+            if t(f'mode_{k}') == label:
+                return k
+        return 'particle'
 
     ALG_OPTIONS = {
         'particle': [
@@ -349,11 +352,8 @@ class ParticleAnalyzerGUI:
     def _update_mode_list(self):
         mode_labels = [t('mode_particle'), t('mode_pore')]
         self._mode_cb['values'] = mode_labels
-        key = self.mode_var.get()
-        if key == 'pore':
-            self._mode_cb.set(t('mode_pore'))
-        else:
-            self._mode_cb.set(t('mode_particle'))
+        key = self._mode_key()
+        self._mode_cb.set(t(f'mode_{key}'))
 
     def _apply_language(self):
         """重設所有介面文字（靜態 widget + 動態顯示）。"""
