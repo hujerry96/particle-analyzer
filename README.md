@@ -1,3 +1,14 @@
+<input type="radio" id="tab-zh" name="lang" checked>
+<input type="radio" id="tab-en" name="lang">
+
+<div style="border-bottom:1px solid #ddd;margin-bottom:16px">
+  <label for="tab-zh" style="display:inline-block;padding:8px 16px;cursor:pointer;border:1px solid #ddd;border-bottom:none;border-radius:6px 6px 0 0;margin-bottom:-1px;background:#f6f8fa;font-weight:bold">中文</label>
+  <label for="tab-en" style="display:inline-block;padding:8px 16px;cursor:pointer;border:1px solid #ddd;border-bottom:none;border-radius:6px 6px 0 0;margin-bottom:-1px;background:#f6f8fa;font-weight:bold">English</label>
+</div>
+
+<!-- ===================== 中文 ===================== -->
+<div class="lang-zh">
+
 # SEM 粒徑分析工具 Particle Size Analyzer
 
 SEM 影像顆粒/孔隙分析工具，支援分水嶺（Watershed）與霍夫圓（Hough Circle）兩種演算法。
@@ -10,6 +21,7 @@ SEM 影像顆粒/孔隙分析工具，支援分水嶺（Watershed）與霍夫圓
 - **雙軸對數分布圖**：Channel (%) + Passing (%) 累積曲線
 - **匯出結果**：CSV 粒徑數據、統計摘要 TXT、疊加圖、分布圖
 - **GUI 圖形介面**（Tkinter）與 CLI 命令列兩種操作方式
+- **雙語介面**：控制面板頂部 `語言 Language` 下拉可即時切換中文 / English
 
 ## 執行方式
 
@@ -86,9 +98,10 @@ pyinstaller ParticleAnalyzer.spec
 | `*_overlay.png` | 分割疊加圖 + 比例尺 |
 | `*_distribution.png` | 雙軸對數分布圖 |
 
----
+</div>
 
-# English
+<!-- ===================== English ===================== -->
+<div class="lang-en">
 
 # SEM Particle Size Analyzer
 
@@ -102,10 +115,7 @@ SEM image particle / pore analysis tool, supporting two core algorithms: Watersh
 - **Dual-axis log distribution plot**: Channel (%) + Passing (%) cumulative curve
 - **Export results**: CSV diameter data, statistics summary TXT, overlay image, distribution plot
 - **GUI (Tkinter)** and **CLI** operation
-
-## Language
-
-The GUI supports **中文 / English** switching from the `語言 Language` dropdown at the top of the control panel. The change applies instantly to all interface text, tooltips, results, and plots.
+- **Bilingual UI**: switch 中文 / English instantly from the `語言 Language` dropdown at the top of the control panel
 
 ## Usage
 
@@ -182,3 +192,11 @@ After analysis, the following files are produced:
 | `*_overlay.png` | Segmentation overlay + scale bar |
 | `*_distribution.png` | Dual-axis log distribution plot |
 
+</div>
+
+<style>
+#tab-zh:checked ~ .lang-zh { display: block; }
+#tab-zh:checked ~ .lang-en { display: none; }
+#tab-en:checked ~ .lang-zh { display: none; }
+#tab-en:checked ~ .lang-en { display: block; }
+</style>
