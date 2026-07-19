@@ -247,8 +247,14 @@ class ParticleAnalyzerGUI:
         # --- 統計結果 ---
         self.result_frame = ttk.LabelFrame(right_frame, text=t('result'), padding=8)
         self.result_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=5)
-        self.result_text = tk.Text(self.result_frame, height=12, width=35, font=('Consolas', 9))
-        self.result_text.pack(fill=tk.BOTH, expand=True)
+        self._result_scroll = ttk.Frame(self.result_frame)
+        self._result_scroll.pack(fill=tk.BOTH, expand=True)
+        self.result_text = tk.Text(self._result_scroll, height=12, width=35, font=('Consolas', 9))
+        self.result_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._result_sb = ttk.Scrollbar(self._result_scroll, orient=tk.VERTICAL,
+                                        command=self.result_text.yview)
+        self._result_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.result_text.configure(yscrollcommand=self._result_sb.set)
         self._result_frame = self.result_frame
 
         self._update_alg_list()
