@@ -30,7 +30,8 @@ from particle_analyzer import (
     draw_scale_bar, _nice_scale_value,
     ScaleCalibrator, imread_unicode, imwrite_unicode, plot_particle_size_distribution
 )
-from i18n import t, set_lang, LANG
+from i18n import t, set_lang
+import i18n
 
 
 class ToolTip:
@@ -155,7 +156,7 @@ class ParticleAnalyzerGUI:
         # --- 語言切換 ---
         lang_frame = ttk.LabelFrame(right_frame, text=t('lang'), padding=6)
         lang_frame.pack(fill=tk.X, padx=8, pady=(5, 2))
-        self.lang_var = tk.StringVar(value='zh' if LANG == 'zh' else 'en')
+        self.lang_var = tk.StringVar(value='zh' if i18n.LANG == 'zh' else 'en')
         self.lang_cb = ttk.Combobox(lang_frame, textvariable=self.lang_var,
                                     values=[t('lang_zh'), t('lang_en')],
                                     state='readonly', width=20)
@@ -361,7 +362,7 @@ class ParticleAnalyzerGUI:
         # 語言下拉本身
         self._lang_frame.configure(text=t('lang'))
         self.lang_cb['values'] = [t('lang_zh'), t('lang_en')]
-        self.lang_var.set('zh' if LANG == 'zh' else 'en')
+        self.lang_var.set('zh' if i18n.LANG == 'zh' else 'en')
         # 按鈕
         self._btn_frame.configure(text=t('op'))
         self._btn_load.configure(text=t('load_image'))
@@ -497,6 +498,14 @@ class ParticleAnalyzerGUI:
     # ========================================================================
 
     def _run_analysis(self):
+        try:
+            self._run_analysis_inner()
+        except Exception as e:
+            import traceback
+            messagebox.showerror(t('err_title'),
+                                 f"{t('err_analysis')}\n\n{traceback.format_exc()[-1500:]}")
+
+    def _run_analysis_inner(self):
         if self.img_original is None:
             messagebox.showwarning(t('warn_no_image'), t('warn_load_first'))
             return
