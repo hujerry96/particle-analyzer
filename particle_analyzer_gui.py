@@ -98,6 +98,7 @@ class ParticleAnalyzerGUI:
         self.props = None
         self.diameters_um = None
         self.stats = None
+        self._scale_state = None
         self.known_length_um = 1.0
         self._param_keys = {}
 
@@ -148,10 +149,25 @@ class ParticleAnalyzerGUI:
         self.canvas_dist = FigureCanvasTkAgg(self.fig_dist, master=bottom_frame)
         self.canvas_dist.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-        # 右側 — 控制面板
+        # 右側 — 控制面板（可滾動）
         right_frame = ttk.Frame(main_paned, width=380)
         main_paned.add(right_frame, weight=1)
-        right_frame.pack_propagate(False)
+
+        right_canvas = tk.Canvas(right_frame, highlightthickness=0)
+        right_sb = ttk.Scrollbar(right_frame, orient=tk.VERTICAL, command=right_canvas.yview)
+        self._right_inner = ttk.Frame(right_canvas)
+        self._right_inner.bind('<Configure>', lambda e: right_canvas.configure(
+            scrollregion=right_canvas.bbox('all')))
+        right_canvas_win = right_canvas.create_window((0, 0), window=self._right_inner, anchor='nw')
+        right_canvas.bind('<Configure>', lambda e: right_canvas.itemconfig(right_canvas_win, width=e.width))
+        right_canvas.configure(yscrollcommand=right_sb.set)
+        right_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        right_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        right_canvas.bind('<Enter>', lambda e: right_canvas.bind_all(
+            '<MouseWheel>', self._on_right_scroll))
+        right_canvas.bind('<Leave>', lambda e: right_canvas.unbind_all('<MouseWheel>'))
+
+        right_frame = self._right_inner
 
         # --- 語言切換 ---
         lang_frame = ttk.LabelFrame(right_frame, text=t('lang'), padding=6)
@@ -213,22 +229,22 @@ class ParticleAnalyzerGUI:
 
         # --- 通用參數（所有演算法共用閾值參數框架）---
         self.ws_frame = ttk.LabelFrame(right_frame, text=t('ws_params'), padding=8)
-        self._add_param(self.ws_frame, 'min_dist', t('min_dist'), 12, 3, 50)
-        self._add_param(self.ws_frame, 'min_area', t('min_area'), 30, 10, 500)
-        self._add_param(self.ws_frame, 'morph_kernel', t('morph_kernel'), 3, 1, 15)
+        self._add_param(self.ws_frame, 'min_dist', 'min_dist', 12, 3, 50)
+        self._add_param(self.ws_frame, 'min_area', 'min_area', 30, 10, 500)
+        self._add_param(self.ws_frame, 'morph_kernel', 'morph_kernel', 3, 1, 15)
         self.ws_frame.pack_forget()
 
         self.hg_frame = ttk.LabelFrame(right_frame, text=t('hg_params'), padding=8)
-        self._add_param(self.hg_frame, 'hough_min_r', t('hough_min_r'), 5, 2, 50)
-        self._add_param(self.hg_frame, 'hough_max_r', t('hough_max_r'), 80, 10, 300)
-        self._add_param(self.hg_frame, 'param1', t('param1'), 50, 10, 200)
-        self._add_param(self.hg_frame, 'param2', t('param2'), 30, 5, 150)
+        self._add_param(self.hg_frame, 'hough_min_r', 'hough_min_r', 5, 2, 50)
+        self._add_param(self.hg_frame, 'hough_max_r', 'hough_max_r', 80, 10, 300)
+        self._add_param(self.hg_frame, 'param1', 'param1', 50, 10, 200)
+        self._add_param(self.hg_frame, 'param2', 'param2', 30, 5, 150)
         self.hg_frame.pack_forget()
 
         self.th_frame = ttk.LabelFrame(right_frame, text=t('th_params'), padding=8)
-        self._add_param(self.th_frame, 'th_min_area', t('th_min_area'), 30, 10, 500)
-        self._add_param(self.th_frame, 'th_max_ratio', t('th_max_ratio'), 50, 5, 99)
-        self._add_param(self.th_frame, 'th_morph', t('th_morph'), 3, 1, 15)
+        self._add_param(self.th_frame, 'th_min_area', 'th_min_area', 30, 10, 500)
+        self._add_param(self.th_frame, 'th_max_ratio', 'th_max_ratio', 50, 5, 99)
+        self._add_param(self.th_frame, 'th_morph', 'th_morph', 3, 1, 15)
         self.th_frame.pack_forget()
 
         # --- 單位切換 ---
@@ -246,7 +262,7 @@ class ParticleAnalyzerGUI:
 
         # --- 統計結果 ---
         self.result_frame = ttk.LabelFrame(right_frame, text=t('result'), padding=8)
-        self.result_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=5)
+        self.result_frame.pack(fill=tk.X, padx=8, pady=5)
         self._result_scroll = ttk.Frame(self.result_frame)
         self._result_scroll.pack(fill=tk.BOTH, expand=True)
         self.result_text = tk.Text(self._result_scroll, height=12, width=35, font=('Consolas', 9))
@@ -380,6 +396,9 @@ class ParticleAnalyzerGUI:
         self._lbl_scale_len.configure(text=t('scale_len_um'))
         if self.pixel_to_micron is None:
             self.lbl_scale.configure(text=t('scale_not_calibrated'))
+        elif self._scale_state:
+            key, kw = self._scale_state
+            self.lbl_scale.configure(text=t(key, **kw))
         # 模式
         self._mode_frame.configure(text=t('mode'))
         self._update_mode_list()
@@ -421,6 +440,9 @@ class ParticleAnalyzerGUI:
             self._show_results()
             self._show_distribution()
             self._show_overlay()
+
+    def _on_right_scroll(self, event):
+        self._right_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
 
     def _add_param(self, parent, name, label_key, default, min_v, max_v):
         row = ttk.Frame(parent)
@@ -481,6 +503,7 @@ class ParticleAnalyzerGUI:
                 text=t('scale_manual', px=px_dist, um=length_um,
                        ratio=ratio, nmp=ratio*1000)
             )
+            self._scale_state = ('scale_manual', dict(px=px_dist, um=length_um, ratio=ratio, nmp=ratio*1000))
             self._log(t('log_calibrated', px=px_dist, um=length_um, ratio=ratio))
         else:
             messagebox.showwarning(t('calib_fail'), t('calib_fail_msg'))
@@ -494,10 +517,12 @@ class ParticleAnalyzerGUI:
                     text=t('scale_auto', px=px_len, um=length_um,
                            ratio=self.pixel_to_micron)
                 )
+                self._scale_state = ('scale_auto', dict(px=px_len, um=length_um, ratio=self.pixel_to_micron))
                 self._log(t('log_auto', px=px_len, ratio=self.pixel_to_micron))
             else:
                 self.pixel_to_micron = 0.01
                 self.lbl_scale.configure(text=t('scale_default'))
+                self._scale_state = ('scale_default', {})
 
     # ========================================================================
     #  執行分析
@@ -527,6 +552,7 @@ class ParticleAnalyzerGUI:
                     text=t('scale_auto', px=px_len, um=self.var_scale_len.get(),
                            ratio=self.pixel_to_micron)
                 )
+                self._scale_state = ('scale_auto', dict(px=px_len, um=self.var_scale_len.get(), ratio=self.pixel_to_micron))
             else:
                 messagebox.showwarning(t('warn_no_image'), t('warn_no_scale'))
                 return
