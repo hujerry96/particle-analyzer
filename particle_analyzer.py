@@ -31,6 +31,7 @@ from matplotlib.backend_bases import MouseButton
 from scipy import ndimage as ndi
 from skimage.feature import peak_local_max
 from skimage.segmentation import watershed as sk_watershed
+from i18n import t, LANG
 
 warnings.filterwarnings('ignore', category=UserWarning)
 
@@ -76,7 +77,7 @@ class ScaleCalibrator:
         self.pixel_dist = None
         self.fig, self.ax = plt.subplots(figsize=(10, 8))
         self.ax.imshow(image_rgb)
-        self.ax.set_title("點擊比例尺的兩個端點（點完自動關閉）")
+        self.ax.set_title(t('calib_window_title'))
         self.cid = self.fig.canvas.mpl_connect('button_press_event', self._on_click)
 
     def _on_click(self, event):
@@ -92,8 +93,8 @@ class ScaleCalibrator:
                 self.pixel_to_micron = self.known_length / pixel_dist
             self.ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'r-', lw=2)
             self.ax.set_title(
-                f"比例尺 = {pixel_dist:.1f} px → "
-                f"{self.known_length} μm  (比例: {self.pixel_to_micron:.6f} μm/px)"
+                t('calib_window_done', dist=pixel_dist, known=self.known_length,
+                  ratio=self.pixel_to_micron)
             )
             plt.pause(0.5)
             plt.close(self.fig)
