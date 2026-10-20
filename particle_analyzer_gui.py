@@ -9,13 +9,14 @@
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import json
 import os
 import sys
+import threading
 from pathlib import Path
 
 import cv2
 import numpy as np
-import pandas as pd
 import matplotlib
 matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -32,6 +33,23 @@ from particle_analyzer import (
 )
 from i18n import t, set_lang
 import i18n
+
+# 使用者設定（語言、單位、比例尺長度、上次資料夾）；放在家目錄，打包成 exe 也能記住
+SETTINGS_PATH = Path.home() / '.particle_analyzer.json'
+
+
+def load_settings():
+    try:
+        return json.loads(SETTINGS_PATH.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
+
+
+def save_settings(data):
+    try:
+        SETTINGS_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding='utf-8')
+    except Exception:
+        pass
 
 
 class ToolTip:
@@ -101,15 +119,53 @@ class ParticleAnalyzerGUI:
         self._scale_state = None
         self.known_length_um = 1.0
         self._param_keys = {}
+        self._busy = False
+        self._status = ('status_ready', {}, None)
+        self.settings = load_settings()
+        if self.settings.get('lang') in ('zh', 'en'):
+            set_lang(self.settings['lang'])
 
         self._build_ui()
         self._apply_language()
+        self._bind_shortcuts()
+        master.protocol('WM_DELETE_WINDOW', self._on_close)
+
+    def _bind_shortcuts(self):
+        for seq, fn in (('<Control-o>', self._load_image), ('<Control-O>', self._load_image),
+                        ('<Control-k>', self._calibrate_scale), ('<Control-K>', self._calibrate_scale),
+                        ('<F5>', self._run_analysis), ('<Control-r>', self._run_analysis),
+                        ('<Control-R>', self._run_analysis),
+                        ('<Control-e>', self._export_results), ('<Control-E>', self._export_results)):
+            self.master.bind(seq, lambda e, fn=fn: fn())
+
+    def _on_close(self):
+        self.settings['lang'] = i18n.LANG
+        self.settings['unit'] = self.unit_var.get()
+        try:
+            self.settings['scale_len'] = float(self.var_scale_len.get())
+        except (tk.TclError, ValueError):
+            pass
+        save_settings(self.settings)
+        self.master.destroy()
+
+    # ---- 狀態列 ----
+    def _set_status(self, key, color=None, **kw):
+        """狀態列以 i18n key 保存，切換語言時可重繪。"""
+        self._status = (key, kw, color)
+        self.status_bar.configure(text=t(key, **kw), foreground=color or '')
 
     # ========================================================================
     #  UI 建構
     # ========================================================================
 
     def _build_ui(self):
+        style = ttk.Style(self.master)
+        style.configure('Accent.TButton', font=('Microsoft JhengHei', 10, 'bold'))
+
+        self.status_bar = ttk.Label(self.master, anchor=tk.W, padding=(8, 3))
+        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        ttk.Separator(self.master, orient=tk.HORIZONTAL).pack(side=tk.BOTTOM, fill=tk.X)
+
         main_paned = ttk.PanedWindow(self.master, orient=tk.HORIZONTAL)
         main_paned.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
 
@@ -161,6 +217,7 @@ class ParticleAnalyzerGUI:
         right_canvas_win = right_canvas.create_window((0, 0), window=self._right_inner, anchor='nw')
         right_canvas.bind('<Configure>', lambda e: right_canvas.itemconfig(right_canvas_win, width=e.width))
         right_canvas.configure(yscrollcommand=right_sb.set)
+        self._right_canvas = right_canvas
         right_sb.pack(side=tk.RIGHT, fill=tk.Y)
         right_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         right_canvas.bind('<Enter>', lambda e: right_canvas.bind_all(
@@ -169,17 +226,6 @@ class ParticleAnalyzerGUI:
 
         right_frame = self._right_inner
 
-        # --- 語言切換 ---
-        lang_frame = ttk.LabelFrame(right_frame, text=t('lang'), padding=6)
-        lang_frame.pack(fill=tk.X, padx=8, pady=(5, 2))
-        self.lang_var = tk.StringVar(value='zh' if i18n.LANG == 'zh' else 'en')
-        self.lang_cb = ttk.Combobox(lang_frame, textvariable=self.lang_var,
-                                    values=[t('lang_zh'), t('lang_en')],
-                                    state='readonly', width=20)
-        self.lang_cb.pack(fill=tk.X)
-        self.lang_cb.bind('<<ComboboxSelected>>', self._on_lang_change)
-        self._lang_frame = lang_frame
-
         # --- 按鈕區 ---
         btn_frame = ttk.LabelFrame(right_frame, text=t('op'), padding=10)
         btn_frame.pack(fill=tk.X, padx=8, pady=5)
@@ -187,7 +233,8 @@ class ParticleAnalyzerGUI:
         self._btn_load.pack(fill=tk.X, pady=2)
         self.btn_calibrate = ttk.Button(btn_frame, text=t('calibrate'), command=self._calibrate_scale, state=tk.DISABLED)
         self.btn_calibrate.pack(fill=tk.X, pady=2)
-        self._btn_run = ttk.Button(btn_frame, text=t('run'), command=self._run_analysis)
+        self._btn_run = ttk.Button(btn_frame, text=t('run'), command=self._run_analysis,
+                                   style='Accent.TButton')
         self._btn_run.pack(fill=tk.X, pady=5)
         self._btn_export = ttk.Button(btn_frame, text=t('export'), command=self._export_results)
         self._btn_export.pack(fill=tk.X, pady=2)
@@ -200,7 +247,7 @@ class ParticleAnalyzerGUI:
         row.pack(fill=tk.X)
         self._lbl_scale_len = ttk.Label(row, text=t('scale_len_um'))
         self._lbl_scale_len.pack(side=tk.LEFT)
-        self.var_scale_len = tk.DoubleVar(value=1.0)
+        self.var_scale_len = tk.DoubleVar(value=self.settings.get('scale_len', 1.0))
         ttk.Entry(row, textvariable=self.var_scale_len, width=8).pack(side=tk.RIGHT)
         self.lbl_scale = ttk.Label(self.scale_frame, text=t('scale_not_calibrated'))
         self.lbl_scale.pack(anchor=tk.W, pady=(4, 0))
@@ -250,13 +297,12 @@ class ParticleAnalyzerGUI:
         # --- 單位切換 ---
         unit_frame = ttk.LabelFrame(right_frame, text=t('display_unit'), padding=8)
         unit_frame.pack(fill=tk.X, padx=8, pady=5)
-        self.unit_var = tk.StringVar(value='nm')
+        self.unit_var = tk.StringVar(value=self.settings.get('unit', 'nm'))
         ttk.Radiobutton(unit_frame, text='nm', variable=self.unit_var,
                         value='nm').pack(side=tk.LEFT, padx=(0, 15))
         ttk.Radiobutton(unit_frame, text='μm', variable=self.unit_var,
-                        value='um', command=self._on_unit_change).pack(side=tk.LEFT)
-        # 'um' 按鈕觸發更新（nm 切換相同）
-        # 綁定兩個按鈕，用 trace 監聽變數變化
+                        value='um').pack(side=tk.LEFT)
+        # 用 trace 監聽變數變化，兩個按鈕都會觸發重繪
         self.unit_var.trace_add('write', self._on_unit_change)
         self._unit_frame = unit_frame
 
@@ -272,6 +318,17 @@ class ParticleAnalyzerGUI:
         self._result_sb.pack(side=tk.RIGHT, fill=tk.Y)
         self.result_text.configure(yscrollcommand=self._result_sb.set)
         self._result_frame = self.result_frame
+
+        # --- 語言切換（不常用，放最下方）---
+        lang_frame = ttk.LabelFrame(right_frame, text=t('lang'), padding=6)
+        lang_frame.pack(fill=tk.X, padx=8, pady=5)
+        self.lang_var = tk.StringVar()
+        self.lang_cb = ttk.Combobox(lang_frame, textvariable=self.lang_var,
+                                    values=[t('lang_zh'), t('lang_en')],
+                                    state='readonly', width=20)
+        self.lang_cb.pack(fill=tk.X)
+        self.lang_cb.bind('<<ComboboxSelected>>', self._on_lang_change)
+        self._lang_frame = lang_frame
 
         self._update_alg_list()
         self._update_alg_tip()
@@ -350,23 +407,27 @@ class ParticleAnalyzerGUI:
         frames = [self.ws_frame, self.hg_frame, self.th_frame]
         for f in frames:
             f.pack_forget()
-        if key == 'watershed':
-            self.ws_frame.pack(fill=tk.X, padx=8, pady=3)
-        elif key == 'hough':
-            self.hg_frame.pack(fill=tk.X, padx=8, pady=3)
-        elif key == 'threshold':
-            self.th_frame.pack(fill=tk.X, padx=8, pady=3)
+        frame = {'watershed': self.ws_frame, 'hough': self.hg_frame,
+                 'threshold': self.th_frame}.get(key)
+        if frame is not None:
+            frame.pack(fill=tk.X, padx=8, pady=3, after=self._alg_frame)
 
     def _on_mode_change(self, event=None):
         self._update_alg_list()
         self._update_alg_tip()
         self._update_param_frames()
-        self._clear_results()
+        self._settings_changed()
 
     def _on_alg_change(self, event=None):
         self._update_alg_tip()
         self._update_param_frames()
+        self._settings_changed()
+
+    def _settings_changed(self):
+        had_results = self.stats is not None
         self._clear_results()
+        if had_results:
+            self._set_status('status_params_changed')
 
     def _on_lang_change(self, event=None):
         set_lang('zh' if self.lang_var.get() == t('lang_zh') else 'en')
@@ -384,13 +445,13 @@ class ParticleAnalyzerGUI:
         # 語言下拉本身
         self._lang_frame.configure(text=t('lang'))
         self.lang_cb['values'] = [t('lang_zh'), t('lang_en')]
-        self.lang_var.set('zh' if i18n.LANG == 'zh' else 'en')
+        self.lang_var.set(t('lang_zh') if i18n.LANG == 'zh' else t('lang_en'))
         # 按鈕
         self._btn_frame.configure(text=t('op'))
-        self._btn_load.configure(text=t('load_image'))
-        self.btn_calibrate.configure(text=t('calibrate'))
-        self._btn_run.configure(text=t('run'))
-        self._btn_export.configure(text=t('export'))
+        self._btn_load.configure(text=f"{t('load_image')}   Ctrl+O")
+        self.btn_calibrate.configure(text=f"{t('calibrate')}   Ctrl+K")
+        self._btn_run.configure(text=f"{t('run')}   F5")
+        self._btn_export.configure(text=f"{t('export')}   Ctrl+E")
         # 比例尺
         self.scale_frame.configure(text=t('scale'))
         self._lbl_scale_len.configure(text=t('scale_len_um'))
@@ -418,6 +479,8 @@ class ParticleAnalyzerGUI:
         self._result_frame.configure(text=t('result'))
         # 圖表標題
         self.ax_dist.set_title(t('dist_title'), fontsize=11)
+        key, kw, color = self._status
+        self._set_status(key, color, **kw)
         # 若已分析，重畫動態內容
         if self.stats:
             self._show_results()
@@ -459,38 +522,76 @@ class ParticleAnalyzerGUI:
     #  載入圖片
     # ========================================================================
 
-    def _load_image(self):
-        path = filedialog.askopenfilename(
-            title=t('select_image_title'),
-            filetypes=[("Image files", "*.tif *.tiff *.png *.jpg *.jpeg *.bmp"), ("All files", "*.*")]
-        )
+    def _load_image(self, path=None):
+        if self._busy:
+            return
+        if path is None:
+            path = filedialog.askopenfilename(
+                title=t('select_image_title'),
+                initialdir=self.settings.get('last_dir') or None,
+                filetypes=[("Image files", "*.tif *.tiff *.png *.jpg *.jpeg *.bmp"), ("All files", "*.*")]
+            )
         if not path:
             return
-        self.image_path = path
-        self.img_original = imread_unicode(path)
-        if self.img_original is None:
+        img = imread_unicode(path)
+        if img is None:
             messagebox.showerror(t('err_title'), t('err_read', path=path))
             return
+        self.image_path = path
+        self.img_original = img
+        self.settings['last_dir'] = str(Path(path).parent)
         self.img_rgb_full = cv2.cvtColor(self.img_original, cv2.COLOR_BGR2RGB)
         self._show_image(self.img_rgb_full, f"{os.path.basename(path)}")
         self.btn_calibrate.configure(state=tk.NORMAL)
         self._clear_results()
         self.scale_bar_px = None
         self.pixel_to_micron = None
+        self._scale_state = None
         self.lbl_scale.configure(text=t('scale_not_calibrated'))
-        self._log(t('log_loaded', name=os.path.basename(path),
-                    w=self.img_original.shape[1], h=self.img_original.shape[0]))
+        name = os.path.basename(path)
+        h, w = self.img_original.shape[:2]
+        self._log(t('log_loaded', name=name, w=w, h=h))
+        # 載入時就先自動偵測比例尺，大多數 SEM 圖可直接按 F5 分析
+        length_um = self._scale_len(show_error=False)
+        if length_um and self._try_auto_scale(length_um):
+            self._set_status('status_loaded_auto', name=name, w=w, h=h)
+        else:
+            self._set_status('status_loaded_manual', '#B45309', name=name, w=w, h=h)
+
+    def _scale_len(self, show_error=True):
+        """讀取比例尺長度；格式錯誤或 <= 0 時回傳 None。"""
+        try:
+            v = float(self.var_scale_len.get())
+        except (tk.TclError, ValueError):
+            v = 0
+        if v <= 0:
+            if show_error:
+                messagebox.showerror(t('err_title'), t('err_scale_len'))
+            return None
+        return v
+
+    def _try_auto_scale(self, length_um):
+        gray_full = cv2.cvtColor(self.img_original, cv2.COLOR_BGR2GRAY)
+        result = auto_detect_scale_bar(gray_full)
+        if result is None:
+            return False
+        px_len, cx, cy = result
+        self.pixel_to_micron = length_um / px_len
+        self.scale_bar_px = px_len
+        self._scale_state = ('scale_auto', dict(px=px_len, um=length_um, ratio=self.pixel_to_micron))
+        self.lbl_scale.configure(text=t(*self._scale_state[:1], **self._scale_state[1]))
+        self._log(t('log_auto', px=px_len, ratio=self.pixel_to_micron))
+        return True
 
     # ========================================================================
     #  比例尺校正
     # ========================================================================
 
     def _calibrate_scale(self):
-        if self.img_rgb_full is None:
+        if self.img_rgb_full is None or self._busy:
             return
-        length_um = self.var_scale_len.get()
-        if length_um <= 0:
-            messagebox.showerror(t('err_title'), t('calib_len_err'))
+        length_um = self._scale_len()
+        if length_um is None:
             return
 
         cal = ScaleCalibrator(self.img_rgb_full, known_length_um=length_um)
@@ -505,6 +606,7 @@ class ParticleAnalyzerGUI:
             )
             self._scale_state = ('scale_manual', dict(px=px_dist, um=length_um, ratio=ratio, nmp=ratio*1000))
             self._log(t('log_calibrated', px=px_dist, um=length_um, ratio=ratio))
+            self._clear_results()
         else:
             messagebox.showwarning(t('calib_fail'), t('calib_fail_msg'))
             gray_full = cv2.cvtColor(self.img_original, cv2.COLOR_BGR2GRAY)
@@ -529,107 +631,140 @@ class ParticleAnalyzerGUI:
     # ========================================================================
 
     def _run_analysis(self):
+        if self._busy:
+            return
         try:
-            self._run_analysis_inner()
-        except Exception as e:
+            job = self._prepare_analysis()
+        except Exception:
             import traceback
             messagebox.showerror(t('err_title'),
                                  f"{t('err_analysis')}\n\n{traceback.format_exc()[-1500:]}")
+            return
+        if job is None:
+            return
+        self._set_busy(True)
+        self._set_status('status_running')
+        threading.Thread(target=self._analysis_worker, args=(job,), daemon=True).start()
 
-    def _run_analysis_inner(self):
+    def _set_busy(self, busy):
+        self._busy = busy
+        state = tk.DISABLED if busy else tk.NORMAL
+        for b in (self._btn_load, self._btn_run, self._btn_export):
+            b.configure(state=state)
+        self.btn_calibrate.configure(
+            state=tk.DISABLED if busy or self.img_original is None else tk.NORMAL)
+        self.master.configure(cursor='watch' if busy else '')
+
+    def _prepare_analysis(self):
+        """在 UI 執行緒讀取所有設定；回傳背景運算需要的參數。"""
         if self.img_original is None:
             messagebox.showwarning(t('warn_no_image'), t('warn_load_first'))
-            return
+            return None
         if self.pixel_to_micron is None:
-            # 嘗試自動偵測
-            gray_full = cv2.cvtColor(self.img_original, cv2.COLOR_BGR2GRAY)
-            result = auto_detect_scale_bar(gray_full)
-            if result is not None:
-                px_len, cx, cy = result
-                self.pixel_to_micron = self.var_scale_len.get() / px_len
-                self.scale_bar_px = px_len
-                self.lbl_scale.configure(
-                    text=t('scale_auto', px=px_len, um=self.var_scale_len.get(),
-                           ratio=self.pixel_to_micron)
-                )
-                self._scale_state = ('scale_auto', dict(px=px_len, um=self.var_scale_len.get(), ratio=self.pixel_to_micron))
-            else:
+            length_um = self._scale_len()
+            if length_um is None:
+                return None
+            if not self._try_auto_scale(length_um):
                 messagebox.showwarning(t('warn_no_image'), t('warn_no_scale'))
-                return
-
-        # 裁切底部資訊欄
-        self.img_cropped_bgr = auto_crop_sem(self.img_original)
-        self.gray = cv2.cvtColor(self.img_cropped_bgr, cv2.COLOR_BGR2GRAY)
-        self.img_cropped_rgb = cv2.cvtColor(self.img_cropped_bgr, cv2.COLOR_BGR2RGB)
-
-        # 確保 scale_bar_px 有值
-        if self.scale_bar_px is None:
-            test_length = _nice_scale_value(1.0)
-            self.scale_bar_px = int(test_length / self.pixel_to_micron)
-            if self.scale_bar_px > self.gray.shape[1] * 0.4:
-                test_length = _nice_scale_value(0.5)
-                self.scale_bar_px = int(test_length / self.pixel_to_micron)
-
+                return None
+        p = {name: getattr(self, f'var_{name}').get() for name in self._param_keys}
         mode = self._mode_key()
         key = self._alg_key(self.alg_var.get())
         self._log(t('running', mode=mode, alg=key))
-        self.master.update()
+        return dict(img=self.img_original, mode=mode, key=key, p=p,
+                    ratio=self.pixel_to_micron, scale_bar_px=self.scale_bar_px)
+
+    def _analysis_worker(self, job):
+        try:
+            result = self._compute(**job)
+        except Exception:
+            import traceback
+            tb = traceback.format_exc()
+            self.master.after(0, self._analysis_failed, tb)
+            return
+        self.master.after(0, self._analysis_done, job, result)
+
+    @staticmethod
+    def _compute(img, mode, key, p, ratio, scale_bar_px):
+        """純運算（不碰 Tk），在背景執行緒執行。"""
+        # 裁切底部資訊欄
+        cropped_bgr = auto_crop_sem(img)
+        gray = cv2.cvtColor(cropped_bgr, cv2.COLOR_BGR2GRAY)
+
+        # 確保 scale_bar_px 有值
+        if scale_bar_px is None:
+            test_length = _nice_scale_value(1.0)
+            scale_bar_px = int(test_length / ratio)
+            if scale_bar_px > gray.shape[1] * 0.4:
+                test_length = _nice_scale_value(0.5)
+                scale_bar_px = int(test_length / ratio)
 
         if mode == 'particle':
             if key == 'watershed':
-                self.props, _, _ = segment_watershed(
-                    self.gray,
-                    min_distance=self.var_min_dist.get(),
-                    min_area=self.var_min_area.get())
+                props, _, _ = segment_watershed(
+                    gray, min_distance=p['min_dist'], min_area=p['min_area'])
             else:
-                self.props, _ = segment_hough_circles(
-                    self.gray,
-                    min_radius=self.var_hough_min_r.get(),
-                    max_radius=self.var_hough_max_r.get(),
-                    param1=self.var_param1.get(),
-                    param2=self.var_param2.get())
+                props, _ = segment_hough_circles(
+                    gray, min_radius=p['hough_min_r'], max_radius=p['hough_max_r'],
+                    param1=p['param1'], param2=p['param2'])
         else:
             if key == 'threshold':
-                self.props, _ = segment_pores_threshold(
-                    self.gray,
-                    min_area=self.var_th_min_area.get(),
-                    max_area_ratio=self.var_th_max_ratio.get() / 100.0,
-                    morph_kernel=self.var_th_morph.get())
+                props, _ = segment_pores_threshold(
+                    gray, min_area=p['th_min_area'],
+                    max_area_ratio=p['th_max_ratio'] / 100.0,
+                    morph_kernel=p['th_morph'])
             elif key == 'watershed':
-                self.props, _, _ = segment_pores_watershed(
-                    self.gray,
-                    min_distance=self.var_min_dist.get(),
-                    min_area=self.var_min_area.get(),
-                    morph_kernel=self.var_morph_kernel.get())
+                props, _, _ = segment_pores_watershed(
+                    gray, min_distance=p['min_dist'], min_area=p['min_area'],
+                    morph_kernel=p['morph_kernel'])
             else:
-                self.props, _ = segment_pores_hough(
-                    self.gray,
-                    min_radius=self.var_hough_min_r.get(),
-                    max_radius=self.var_hough_max_r.get(),
-                    param1=self.var_param1.get(),
-                    param2=self.var_param2.get())
+                props, _ = segment_pores_hough(
+                    gray, min_radius=p['hough_min_r'], max_radius=p['hough_max_r'],
+                    param1=p['param1'], param2=p['param2'])
 
-        if not self.props:
-            msg = t('info_no_particles') if mode == 'particle' else t('info_no_pores')
-            self._log(t('log_no_detect', msg=msg))
-            messagebox.showinfo(t('info_result'), msg)
-            return
-
-        self.diameters_um = [p['diameter_eq_px'] * self.pixel_to_micron for p in self.props]
-        self.stats = compute_statistics(self.diameters_um)
-        self.stats['min_um'] = self.stats['min_nm'] / 1000
-        self.stats['max_um'] = self.stats['max_nm'] / 1000
-        self.stats['d10_um'] = self.stats['d10_nm'] / 1000
-        self.stats['d90_um'] = self.stats['d90_nm'] / 1000
-
+        out = dict(cropped_bgr=cropped_bgr, gray=gray, props=props,
+                   scale_bar_px=scale_bar_px, diameters_um=None, stats=None)
+        if not props:
+            return out
+        diameters_um = [q['diameter_eq_px'] * ratio for q in props]
+        stats = compute_statistics(diameters_um)
+        stats['min_um'] = stats['min_nm'] / 1000
+        stats['max_um'] = stats['max_nm'] / 1000
+        stats['d10_um'] = stats['d10_nm'] / 1000
+        stats['d90_um'] = stats['d90_nm'] / 1000
         if mode == 'pore':
-            total_area = self.gray.shape[0] * self.gray.shape[1]
-            pore_areas = [p['area_px'] for p in self.props]
-            self.stats['porosity'] = compute_porosity(pore_areas, total_area)
+            total_area = gray.shape[0] * gray.shape[1]
+            stats['porosity'] = compute_porosity([q['area_px'] for q in props], total_area)
+        out.update(diameters_um=diameters_um, stats=stats)
+        return out
 
-        self._show_results()
-        self._show_overlay()
-        self._show_distribution()
+    def _analysis_failed(self, tb):
+        self._set_busy(False)
+        self._set_status('err_analysis', '#B91C1C')
+        messagebox.showerror(t('err_title'), f"{t('err_analysis')}\n\n{tb[-1500:]}")
+
+    def _analysis_done(self, job, r):
+        self._set_busy(False)
+        self.img_cropped_bgr = r['cropped_bgr']
+        self.gray = r['gray']
+        self.img_cropped_rgb = cv2.cvtColor(self.img_cropped_bgr, cv2.COLOR_BGR2RGB)
+        self.scale_bar_px = r['scale_bar_px']
+        self.props = r['props']
+        if not self.props:
+            msg = t('info_no_particles') if job['mode'] == 'particle' else t('info_no_pores')
+            self._log(t('log_no_detect', msg=msg))
+            self._set_status('log_no_detect', '#B45309', msg=msg)
+            self.props = None
+            return
+        self.diameters_um = r['diameters_um']
+        self.stats = r['stats']
+        try:
+            self._show_results()
+            self._show_overlay()
+            self._show_distribution()
+        except Exception:
+            import traceback
+            self._analysis_failed(traceback.format_exc())
 
     # ========================================================================
     #  顯示結果
@@ -742,6 +877,8 @@ class ParticleAnalyzerGUI:
         self.result_text.insert(1.0, text)
         self._log(t('log_done', count=s['count'], label=label,
                     mean=s[f'mean{sfx}'], u=ulb))
+        self._set_status('log_done', '#047857', count=s['count'], label=label,
+                         mean=s[f'mean{sfx}'], u=ulb)
 
     def _show_image(self, img_rgb, title=""):
         self.ax_img.clear()
@@ -761,19 +898,22 @@ class ParticleAnalyzerGUI:
 
     # ========================================================================
     #  匯出
-
-    # ========================================================================
-    #  匯出
     # ========================================================================
 
     def _export_results(self):
+        if self._busy:
+            return
         if not self.stats:
             messagebox.showwarning(t('export_warn'), t('export_no_result'))
             return
 
-        out_dir = filedialog.askdirectory(title=t('export_title'))
+        out_dir = filedialog.askdirectory(
+            title=t('export_title'),
+            initialdir=self.settings.get('export_dir') or str(Path(self.image_path).parent))
         if not out_dir:
             return
+        self.settings['export_dir'] = out_dir
+        import pandas as pd  # 延遲載入，加快啟動
 
         out_path = Path(out_dir)
         base = Path(self.image_path).stem
@@ -858,12 +998,17 @@ class ParticleAnalyzerGUI:
             figsize=(7.5, 7), unit=u
         )
 
-        messagebox.showinfo(t('export_done'),
-            t('export_files', dir=out_dir, csv=csv_path.name, txt=txt_path.name,
-              overlay=overlay_path.name, dist=dist_path.name))
+        self._set_status('status_exported', '#047857', dir=out_dir)
+        if messagebox.askyesno(t('export_done'),
+                t('export_files', dir=out_dir, csv=csv_path.name, txt=txt_path.name,
+                  overlay=overlay_path.name, dist=dist_path.name) + t('export_open_q')):
+            os.startfile(out_dir)
 
 
 if __name__ == '__main__':
     root = tk.Tk()
     app = ParticleAnalyzerGUI(root)
+    # 支援直接開啟圖片：python particle_analyzer_gui.py 圖片.tif（或把圖片拖到 exe 上）
+    if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
+        root.after(100, app._load_image, sys.argv[1])
     root.mainloop()

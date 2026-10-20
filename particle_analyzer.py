@@ -21,7 +21,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import pandas as pd
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
@@ -420,6 +419,7 @@ def compute_statistics(diameters_um):
 
 def export_csv(diameters_um, output_path):
     """輸出粒徑數據到 CSV。"""
+    import pandas as pd  # 延遲載入，加快 GUI 啟動
     df = pd.DataFrame({'Diameter_um': diameters_um})
     df.to_csv(output_path, index=False, encoding='utf-8-sig')
     return df

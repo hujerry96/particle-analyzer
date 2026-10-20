@@ -22,6 +22,10 @@ SEM 影像顆粒/孔隙分析工具，支援分水嶺（Watershed）與霍夫圓
 python particle_analyzer_gui.py
 ```
 
+也可直接帶圖片路徑：`python particle_analyzer_gui.py sample.tif`。載入圖片時會自動偵測比例尺，偵測成功即可直接按 F5 分析。
+
+快捷鍵：`Ctrl+O` 載入圖片、`Ctrl+K` 手動校正比例尺、`F5` 執行分析、`Ctrl+E` 匯出結果。語言、顯示單位、比例尺長度與上次資料夾會記在 `~/.particle_analyzer.json`。
+
 ### 命令列
 
 ```bash

@@ -22,6 +22,10 @@ SEM image particle / pore analysis tool, supporting two core algorithms: Watersh
 python particle_analyzer_gui.py
 ```
 
+You can also pass an image path: `python particle_analyzer_gui.py sample.tif`. The scale bar is auto-detected on load; if found, just press F5.
+
+Shortcuts: `Ctrl+O` load image, `Ctrl+K` calibrate scale manually, `F5` run analysis, `Ctrl+E` export. Language, display unit, scale length and last folders are remembered in `~/.particle_analyzer.json`.
+
 ### Command line
 
 ```bash
